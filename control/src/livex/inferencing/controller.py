@@ -32,7 +32,6 @@ class InferencingController(BaseController):
 
         self._create_managers()
 
-
     def _create_managers(self):
         """Build the parameter tree and the endpoint managers."""
         if len(self.managers) > 0:
