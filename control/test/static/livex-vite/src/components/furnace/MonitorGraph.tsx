@@ -9,10 +9,29 @@ interface MonitorGraphProps {
   title: string;
   paths: string[]; // paths to the data in the endpoint, e.g. "temperature_upper/data"
   seriesNames: string[];
+  plotTitle?: string;
+  xData?: number[];
+  xLabel?: string;
+  yLabel?: string;
+  axisLimit?: [number, number];
+  type?: string;
+  showTitleCard?: boolean;
 }
 
 function MonitorGraph(props: MonitorGraphProps) {
-    const {endpoint, title, paths, seriesNames } = props;
+    const {
+      endpoint,
+      title,
+      paths,
+      seriesNames,
+      plotTitle = '',
+      xData,
+      xLabel,
+      yLabel,
+      axisLimit,
+      type = 'scatter',
+      showTitleCard = true
+    } = props;
 
     // Initialise enabled traces outside of useEffect, all to true
     const [enabledTraces, setEnabledTraces] = useState(() =>
@@ -30,7 +49,9 @@ function MonitorGraph(props: MonitorGraphProps) {
             if (!acc || typeof acc !== 'object' || Array.isArray(acc)) return undefined;
             return (acc as ParamNode)[key];
           }, endpoint.data as ParamNode)
-        return Array.isArray(val) ? val : []; // always an array
+        return Array.isArray(val) && val.every((item): item is number => typeof item === 'number')
+          ? val
+          : [];
       });
     }, [paths, endpoint?.data]);
 
@@ -47,8 +68,7 @@ function MonitorGraph(props: MonitorGraphProps) {
 
     // console.log(filteredData)
 
-    return (
-      <TitleCard title={title}>
+    const graphContent = (
         <Col>
           <Row>
             <Col style={{flexDirection: 'row', justifyContent: 'flex-end'}}>
@@ -69,15 +89,22 @@ function MonitorGraph(props: MonitorGraphProps) {
           </Row>
           <Row>
             <ResizeableOdinGraph
+              title={plotTitle}
               prop_data={filteredData}
+              x_data={xData}
               series_names={filteredNames}
+              x_label={xLabel}
+              y_label={yLabel}
+              axis_limit={axisLimit}
+              type={type}
               width={'99%'}
               responsive={false}
             />
           </Row>
         </Col>
-      </TitleCard>
     )
+
+    return showTitleCard ? <TitleCard title={title}>{graphContent}</TitleCard> : graphContent;
 }
 
 export default MonitorGraph;

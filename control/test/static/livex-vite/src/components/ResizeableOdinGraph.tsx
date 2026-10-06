@@ -13,21 +13,24 @@ interface ResizeableOdinGraphProps {
     num_y?: number;
     type?: string;
     series_names?: string[];
+    x_label?: string;
+    y_label?: string;
+    axis_limit?: [number, number];
     colorscale?: string[];
     zoom_event_handler?: any;
 }
 
 function ResizeableOdinGraph(props: ResizeableOdinGraphProps) {
-    const {title, prop_data, x_data=null, width='100%', height='100%', responsive=true,useResizeHandler=true,
-           num_x=null, num_y=null, type='scatter', series_names=[],
+        const {title, prop_data, x_data=null, width='100%', height='100%', responsive=true,useResizeHandler=true,
+            num_x=null, type='scatter', series_names=[], x_label='', y_label='', axis_limit,
            colorscale="Portland", zoom_event_handler=null} = props;
     const [data, changeData] = useState([{}]);
     const [layout, changeLayout] = useState({});
 
 
     const get_array_dimenions = (data: number[] | number[][]) => {
-        var x = (x_data) ? x_data.length : data.length;
-        var y = (Array.isArray(data[0]) ? data[0].length : 1);
+        var x = data.length;
+        var y = Array.isArray(data[0]) ? 2 : 1;
         // var z = (Array.isArray(data[0]) ? (Array.isArray(data[0][0]) ? data[0][0].length : 1) : 1);
 
         // console.log("(" + x + ", " + y + ")");
@@ -50,6 +53,7 @@ function ResizeableOdinGraph(props: ResizeableOdinGraphProps) {
                         x: (x_data) ? x_data : Array.from(propData2D[i], (_, k) => k),
                         y: propData2D[i],
                         type: "scatter",
+                        mode: type === "line" ? "lines" : undefined,
                         name: series_names[i] || null
                     }
                     data.push(dataset);
@@ -62,13 +66,24 @@ function ResizeableOdinGraph(props: ResizeableOdinGraphProps) {
                     x: (x_data) ? x_data : Array.from(propData1D, (_, k) => k),
                     y: propData1D,
                     type: "scatter",
-                    name: "dataset"
+                    mode: type === "line" ? "lines" : undefined,
+                    name: series_names[0] || "dataset"
                 }
                 data.push(dataset);
                 
             }
             
-            changeLayout({yaxis: {autorange: true}, title:title, autosize: true});
+            changeLayout({
+                xaxis: {title: {text: x_label}, automargin: true},
+                yaxis: {
+                    autorange: !axis_limit,
+                    range: axis_limit,
+                    title: {text: y_label},
+                    automargin: true
+                },
+                title: title,
+                autosize: true
+            });
 
         }
         else if(type == "heatmap" || type == "contour")
@@ -111,7 +126,7 @@ function ResizeableOdinGraph(props: ResizeableOdinGraphProps) {
 
         changeData(data);
 
-    }, [prop_data]);
+    }, [prop_data, x_data, title, type, series_names, x_label, y_label, axis_limit, colorscale, num_x]);
 
     return (
         <Plot data={data} layout={layout} debug={true} onRelayout={zoom_event_handler} config={{responsive: responsive}} style={{height:height, width:width}} useResizeHandler={useResizeHandler}/>

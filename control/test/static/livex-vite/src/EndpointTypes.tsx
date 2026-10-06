@@ -301,40 +301,6 @@ export interface CameraEndpointTypes extends ParamNode {
     };
 }
 
-export interface InferenceEndpointResultTypes extends ParamNode {
-    endpoint_name: string;
-    endpoint: string;
-    connection: {
-        connected: boolean;
-        reconnect: boolean;
-    };
-    probabilities: {
-        columnar: number;
-        equiaxed: number;
-        alpha: number;
-        beta: number;
-        hot_tear: number;
-    };
-    results: {
-        inference_enabled: boolean;
-        inference_running: boolean;
-        last_frame_number: number;
-        avg_inference_time_ms: number;
-        flatfield_file: string;
-        experiment_number: number;
-        recording: boolean;
-        num_predictions: number;
-    };
-    set_flatfield_num: number;
-    background_task: {
-        interval: number;
-        enable: boolean;
-    };
-}
-
-export interface InferenceEndpointTypes extends ParamNode {
-    [endpoint_id: string]: InferenceEndpointResultTypes;
-}
 
 export interface GraphEndpointDataType extends ParamNode {
     data: number[];
@@ -346,4 +312,69 @@ export interface GraphEndpointDataType extends ParamNode {
 
 export interface GraphEndpointTypes extends ParamNode {
     [graph_id: string]: GraphEndpointDataType;
+}
+
+export interface InferencingEndpointResultTypes extends ParamNode {
+    axis_limit?: [number, number];
+    graph_label?: string;
+    results?: {
+        [result_id: string]: {
+            data: number[];
+            label: string;
+        };
+    };
+    type: string;
+    x_label?: string;
+    y_label?: string;
+}
+
+export interface InferencingEndpointEndpointTypes extends ParamNode {
+    "connection": {
+        connected: boolean;
+    };
+    "endpoint": string;
+    "endpoint_name": string;
+    "model": {
+        "available": string[];
+        "select": string;
+        "selected": string;
+        "display_name": string;
+        "status": {
+            "app_state": string;
+            "config_params": {
+                default: number;
+                key: string;
+                range: [number, number];
+                type: string;
+            }[];
+            "display_name": string;
+            "image_stream": {
+                available: boolean;
+                dropped: number;
+                endpoint: string;
+                last_error: any;
+                last_render_ms: number;
+                rendered: number;
+            };
+            "preprocessing": {
+                applied: string[];
+                dropped: any[];
+            };
+        };
+    };
+    "results": {
+        "first_frame": number;
+        "most_recent_frame": number;
+        [result_id: string]: number | InferencingEndpointResultTypes;
+    }
+}
+
+export interface InferencingEndpointTypes extends ParamNode {
+  "background_task": {
+    "enable": boolean;
+    "interval": number;
+  };
+  "endpoint": {
+    [endpoint_id: string]: InferencingEndpointEndpointTypes;
+  }
 }

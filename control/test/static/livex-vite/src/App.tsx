@@ -11,7 +11,7 @@ import FurnacePage from './components/furnace/FurnacePage.tsx';
 import Metadata from './components/setup/Metadata.tsx';
 import Cameras from './components/cameras/Cameras.tsx';
 import Trigger from './components/setup/Trigger.tsx';
-import InferencePage from './components/InferencePage.tsx';
+import InferencingPage from './components/inferencing/InferencingPage.tsx';
 import GraphPage from './components/GraphPage.tsx'
 import SequencerPage from './components/SequencerPage.tsx';
 
@@ -54,7 +54,7 @@ function App() {
         />
       </Row>
       <Row>
-        <InferencePage
+        <InferencingPage
           endpoint_url={endpoint_url}
         />
       </Row>
