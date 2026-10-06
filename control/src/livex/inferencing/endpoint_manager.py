@@ -10,11 +10,12 @@ from zmq import ZMQError
 
 class EndpointManager():
 
-    def __init__(self, endpoint, name):
+    def __init__(self, endpoint, name, data_retention):
 
         self.endpoint_addr = endpoint
         self.results_endpoint = self.endpoint_addr + ":9002"
         self.name = name
+        self.data_retention = data_retention
 
         self.msg_id = 0
         self.results = {}
@@ -170,6 +171,8 @@ class EndpointManager():
             frame_number = inferred_frame['frame_number']
             for graph_name, results in inferred_frame['values'].items():
                 for result, value in results.items():
+                    if len(self.results[graph_name]['results'][result]['data']) >= self.data_retention:
+                        self.results[graph_name]['results'][result]['data'].pop(0)
                     self.results[graph_name]['results'][result]['data'].append(
                         value
                     )

@@ -28,6 +28,8 @@ class InferencingController(BaseController):
         self.bg_poll_task_enable = bool(options.get('endpoint_poll_enable', 1))
         self.bg_poll_task_interval = bool(options.get('endpoint_poll_interval', 1))
 
+        self.data_retention = int(options.get('data_retention', 60))
+
         self._create_managers()
 
 
@@ -41,7 +43,7 @@ class InferencingController(BaseController):
         tree = {}
 
         for i in range(len(self.endpoint_addresses)):
-            manager = EndpointManager(self.endpoint_addresses[i], self.names[i])
+            manager = EndpointManager(self.endpoint_addresses[i], self.names[i], self.data_retention)
             self.managers.append(manager)
             managerTrees[self.names[i]] = manager.param_tree
 
