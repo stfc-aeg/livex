@@ -4,7 +4,7 @@ import { Row, Col, Form, FloatingLabel } from 'react-bootstrap';
 import { type AdapterEndpoint, WithEndpoint, TitleCard } from '@dssg/odin-react';
 
 import MonitorGraph from '../furnace/MonitorGraph';
-import { floatingInputStyle } from '../../utils';
+import { floatingInputStyle, floatingLabelStyle, checkNull, checkNullNoDp } from '../../utils';
 
 interface InferencingCardProps {
   endpoint: AdapterEndpoint<InferencingEndpointTypes>;
@@ -16,6 +16,7 @@ const EndpointSelect = WithEndpoint(Form.Select);
 function InferencingCard(props: InferencingCardProps) {
     const {endpoint, name} = props;
 
+    const datapath = endpoint?.data?.endpoint?.[name];
     const results = endpoint?.data?.endpoint?.[name]?.results;
     const endpointPath = `endpoint/${name}`;
 
@@ -92,7 +93,26 @@ function InferencingCard(props: InferencingCardProps) {
                   Preprocessing (e.g. flatfield)
               </Row>
               <Row className="mt-3">
-                Results values e.g. active classes
+                <Col xs={4}>
+                  <FloatingLabel label="Mean inference time (ms)">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={checkNull(datapath?.stats?.mean_infer_ms)}
+                    />
+                  </FloatingLabel>
+                </Col>
+                <Col xs={4}>
+                  <FloatingLabel label="Total frames seen">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={checkNullNoDp(datapath?.stats?.frames_seen)}
+                    />
+                  </FloatingLabel>
+                </Col>
               </Row>
             </Col>
           </Row>

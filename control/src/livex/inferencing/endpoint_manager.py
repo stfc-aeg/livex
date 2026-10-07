@@ -60,8 +60,7 @@ class EndpointManager():
             raise LiveXError(f"Failed to get stats from {self.name} results endpoint, please check the connection.")
 
         # There may be a model loaded already
-        
-        if self.stats['app_state'] != 'no_model':
+        if self.model_status['app_state'] != 'no_model':
             self.get_model_status()
             self._clear_results()
 
@@ -95,8 +94,9 @@ class EndpointManager():
 
     def get_stats(self):
         """Get the endpoint stats and update the app state"""
-        self.stats = self._call(cmd='get_stats')
-        self.model_status['app_state'] = self.stats.get(
+        response = self._call(cmd='get_stats')
+        self.stats = response.get('stats', {})  # Just the frame counters needed
+        self.model_status['app_state'] = response.get(
             'app_state', self.model_status.get('app_state', 'no_model')
         )
         return self.stats
@@ -130,36 +130,39 @@ class EndpointManager():
 
     def _clear_results(self):
         """Create an empty results tree based on the current model's result_modes."""
-        result_modes = self.model_status.get('result_modes')
-        if result_modes is not None and result_modes != self.result_modes:
-            self.result_modes = result_modes
-            self.results = { 'first_frame': 0, 'most_recent_frame': 0}
+        result_modes = self.result_modes
+        self.results = {'first_frame': 0, 'most_recent_frame': 0}
+        if result_modes is None:
+            return
 
-            # Result modes is a dictionary of graph-names, which have some data and the results to plot on them
-            # These results contain the name of the result and an optional label for the graph legend
-            logging.warning(f"result_modes: {result_modes}")
-            for graph_name in result_modes.keys():
-                graph = result_modes[graph_name]
-                self.results[graph_name] = {
-                    'type': graph['type'],
-                    'axis_limit': graph.get('axis_limit', None),
-                    'x_label': graph.get('x_label', None),
-                    'y_label': graph.get('y_label', None),
-                    'graph_label': graph.get('graph_label', None),
-                    'results': {}
-                }
+        # Result modes describe each graph and the series available to plot.
+        for graph_name, graph in result_modes.items():
+            self.results[graph_name] = {
+                'type': graph['type'],
+                'axis_limit': graph.get('axis_limit'),
+                'x_label': graph.get('x_label'),
+                'y_label': graph.get('y_label'),
+                'graph_label': graph.get('graph_label'),
+                'results': {}
+            }
 
-                if graph['type'] != 'bitmap':
-                    for result in graph['results']:
-                        self.results[graph_name]['results'][result['name']] = {
-                            'label': result.get('label', result['name']),
-                            'data': [],
-                        }
+            if graph['type'] != 'bitmap':
+                for result in graph.get('results', []):
+                    self.results[graph_name]['results'][result['name']] = {
+                        'label': result.get('label', result['name']),
+                        'data': [],
+                    }
 
     def get_model_status(self):
         """Send a command to get the latest model status information."""
-        self.model_status = self._call(cmd='get_model_status')
-        self.selected_model = self.model_status.get('selected', self.selected_model)
+        response = self._call(cmd='get_model_status')
+        self.model_status = {
+            'app_state': response.get('app_state', self.model_status.get('app_state', 'no_model')),
+            'display_name': response.get('display_name', self.model_status.get('display_name', None)),
+            'preprocessing': response.get('preprocessing', self.model_status.get('preprocessing', None))
+        }
+        self.selected_model = response.get('selected', self.selected_model)
+        self.result_modes = response.get('result_modes', self.result_modes)
 
     def get_results(self):
         """Drain and store results currently buffered by the endpoint."""

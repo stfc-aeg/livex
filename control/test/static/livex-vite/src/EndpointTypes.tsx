@@ -341,21 +341,7 @@ export interface InferencingEndpointEndpointTypes extends ParamNode {
         "display_name": string;
         "status": {
             "app_state": string;
-            "config_params": {
-                default: number;
-                key: string;
-                range: [number, number];
-                type: string;
-            }[];
             "display_name": string;
-            "image_stream": {
-                available: boolean;
-                dropped: number;
-                endpoint: string;
-                last_error: any;
-                last_render_ms: number;
-                rendered: number;
-            };
             "preprocessing": {
                 applied: string[];
                 dropped: any[];
@@ -366,6 +352,15 @@ export interface InferencingEndpointEndpointTypes extends ParamNode {
         "first_frame": number;
         "most_recent_frame": number;
         [result_id: string]: number | InferencingEndpointResultTypes;
+    };
+    stats: {
+        batches: number;
+        frames_dropped_queue: number;
+        frames_inferred: number;
+        frames_seen: number;
+        frames_stale: number;
+        last_frame_number: number;
+        mean_infer_ms: number;
     }
 }
 
