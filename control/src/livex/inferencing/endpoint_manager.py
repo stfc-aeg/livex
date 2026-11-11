@@ -1,6 +1,7 @@
 """Python class to manage the inferencing endpoints (results, image)."""
 
 import logging
+import time
 
 import zmq
 from zmq import ZMQError
@@ -44,10 +45,11 @@ class EndpointManager():
         self.tree = {
             'endpoint_name': self.name,
             'endpoint': self.endpoint_addr,
-            'connection': {'connected': {
-                'results': (lambda: self.results_connected, None),
-                'image': (lambda: self.image_connected, None)
-            }},
+            'connection': {
+                'results_connected': (lambda: self.results_connected, None),
+                'image_connected': (lambda: self.image_connected, None),
+                'reconnect': (lambda: None, self._connect_results)
+            },
             'stats': (lambda: self.stats, None),
             'model': {
                 'selected': (lambda: self.selected_model, None),
@@ -59,7 +61,7 @@ class EndpointManager():
         }
         self.param_tree = ParameterTree(self.tree)
 
-    def _connect_results(self):
+    def _connect_results(self, value=None):
         """Connect to the results endpoint.
         If it's available, fetch results.
         If there is a model loaded, populate the results part of the tree.
@@ -72,16 +74,19 @@ class EndpointManager():
             raise LiveXError(f"Error connecting to {self.name} results endpoint: {e}")
 
         # Get state once connection is established
-        self.get_stats()
-        self.list_models()
+        try:
+            self.get_stats()
+            self.list_models()
 
-        if not self.stats:
-            raise LiveXError(f"Failed to get stats from {self.name} results endpoint, please check the connection.")
-
-        # There may be a model loaded already
-        if self.model_status['app_state'] != 'no_model':
-            self.get_model_status()
-            self._clear_results()
+            # There may be a model loaded already
+            if self.model_status['app_state'] != 'no_model':
+                self.get_model_status()
+                self._clear_results()
+        except Exception as e:
+            # If something goes wrong here try connecting another time, shouldn't hang the software
+            logging.warning(f"Error getting initial stats/status from {self.name} results endpoint: {e}")
+            logging.warning("Please call reconnect to try again.")
+            self.results_connected = False
 
     def _connect_image(self):
         """Connect and subscribe to the image endpoint."""
@@ -171,8 +176,9 @@ class EndpointManager():
         self.selected_model = response.get('name', name.strip())
         self.model_status = response
 
-        self.get_model_status()
+        self.result_modes = None
         self._clear_results()
+        self.get_model_status()
 
     def _clear_results(self):
         """Create an empty results tree based on the current model's result_modes."""
@@ -211,7 +217,10 @@ class EndpointManager():
             'image_stream': response.get('image_stream', {'available': False})
         }
         self.selected_model = response.get('selected', self.selected_model)
-        self.result_modes = response.get('result_modes', self.result_modes)
+        result_modes = response.get('result_modes')
+        if result_modes is not None and result_modes != self.result_modes:
+            self.result_modes = result_modes
+            self._clear_results()
 
         self._update_image_connection(self.model_status['image_stream'])
 
@@ -297,6 +306,9 @@ class EndpointManager():
 
     def _periodic_results_task(self):
         """Periodic task called by the controller to get model results if ready."""
+        if not self.results_connected:
+            return
+
         self.get_model_status()
         if self.model_status['app_state'] in ['ready', 'capturing_flat', 'inferencing']:
             self.get_results()

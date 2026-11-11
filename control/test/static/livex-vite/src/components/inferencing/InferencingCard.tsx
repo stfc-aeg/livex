@@ -96,8 +96,8 @@ function InferencingCard(props: InferencingCardProps) {
 
     const availableModels = endpoint?.data?.endpoint?.[name]?.model?.available || [];
     const graphs = Object.entries(results ?? {}).flatMap<InferenceGraph>(([graphId, value]) => {
-      // Skip first_frame and most_recent_frame, everything else is results to display
-      if (typeof value === 'number') return [];
+      // Skip summary numbers and null graph entries seen while models are swapping.
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
 
       const graph = value as InferencingEndpointResultTypes;
       if (graph.type === 'bitmap') {
@@ -120,8 +120,7 @@ function InferencingCard(props: InferencingCardProps) {
                     <EndpointSelect
                       endpoint={endpoint}
                       fullpath={`${endpointPath}/model/select`}
-                      style={floatingInputStyle}
-                      value={endpoint?.data?.endpoint?.[name]?.model?.display_name || ''}
+                      value={endpoint?.data?.endpoint?.[name]?.model?.status?.display_name || ''}
                     >
                       {availableModels.map((model) => (
                         <option key={model} value={model}>

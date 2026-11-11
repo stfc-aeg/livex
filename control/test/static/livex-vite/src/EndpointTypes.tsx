@@ -354,7 +354,6 @@ export interface InferencingEndpointEndpointTypes extends ParamNode {
         "available": string[];
         "select": string;
         "selected": string;
-        "display_name": string;
         "status": {
             "app_state": string;
             "display_name": string;
