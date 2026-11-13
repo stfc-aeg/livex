@@ -1,6 +1,7 @@
 """Python class to manage the inferencing endpoints (results, image)."""
 
 import logging
+import os
 import time
 
 import zmq
@@ -32,14 +33,32 @@ class EndpointManager():
         self.results = {}
         self.stats = {}
         self.model_status = {'app_state': 'no_model'}
+        self.inferencing_path = None
         self.selected_model = None
         self.available_models = []
         self.result_modes = None
         self.bitmap_images = {}
+
         self.results_connected = False
         self.image_connected = False
         self.timeout_ms = 1000
         self.error_consecutive = 0
+
+        self.flatfield_mode = 'first_n'
+        self.flatfield_enabled = False
+        self.flatfield_loaded = False
+        self.flatfield_source = None
+        self.flatfield_search_folder = None
+        self.flatfield_state = 'none'
+        self.flatfield_shape = None
+        self.flatfield_capture = None
+        self.flatfield_ticket = None
+        self.flatfield_error = None
+        self.flatfield_n = 10
+        self.flatfield_number = 0
+        self.flatfield_initialized = False
+        self.flatfield_initialization_pending_disable = False
+        self.framesets_path = None
 
         self._connect_results()
         self.tree = {
@@ -56,6 +75,19 @@ class EndpointManager():
                 'select': (lambda: self.selected_model, self.select_model),
                 'status': (lambda: self.model_status, None),
                 'available': (lambda: self.available_models, None)
+            },
+            'flatfield': {
+                'enabled': (lambda: self.flatfield_enabled, self.set_flatfield_enabled),
+                'loaded': (lambda: self.flatfield_loaded, None),
+                'source': (lambda: self.flatfield_source, None),
+                'search_folder': (lambda: self.flatfield_search_folder, None),
+                'state': (lambda: self.flatfield_state, None),
+                'shape': (lambda: self.flatfield_shape, None),
+                'capture': (lambda: self.flatfield_capture, None),
+                'mode': (lambda: self.flatfield_mode, None),
+                'error': (lambda: self.flatfield_error, None),
+                'n': (lambda: self.flatfield_n, self.set_flatfield_n, {'min': 1}),
+                'number': (lambda: self.flatfield_number, self.set_flatfield_number, {'min': 0}),
             },
             'results': (lambda: self.results, None),
         }
@@ -82,6 +114,7 @@ class EndpointManager():
             if self.model_status['app_state'] != 'no_model':
                 self.get_model_status()
                 self._clear_results()
+
         except Exception as e:
             # If something goes wrong here try connecting another time, shouldn't hang the software
             logging.warning(f"Error getting initial stats/status from {self.name} results endpoint: {e}")
@@ -146,31 +179,144 @@ class EndpointManager():
     def get_stats(self):
         """Get the endpoint stats and update the app state"""
         response = self._call(cmd='get_stats')
+        logging.warning(f"get_stats response:\n{response}")
         self.stats = response.get('stats', {})  # Just the frame counters needed
         self.model_status['app_state'] = response.get(
             'app_state', self.model_status.get('app_state', 'no_model')
         )
+
+        preprocess = response.get('preprocess', []) or []
+        for process in preprocess:
+            if process.get('name') == 'flatfield':
+                self._update_flatfield_status(process)
+
+        if (
+            self.flatfield_initialization_pending_disable
+            and self.flatfield_state != 'capturing'
+        ):
+            self.set_flatfield_enabled(False)
+            self.flatfield_initialization_pending_disable = False
+
+        if (
+            not self.flatfield_initialized
+            and self.model_status['app_state'] == 'ready'
+        ):
+            self._initialize_flatfield()
+
         return self.stats
+
+    def _update_flatfield_status(self, status):
+        self.flatfield_enabled = status.get('enabled', self.flatfield_enabled)
+        self.flatfield_loaded = status.get('loaded', self.flatfield_loaded)
+        self.flatfield_source = status.get('source', self.flatfield_source)
+        self.flatfield_search_folder = status.get(
+            'search_folder', self.flatfield_search_folder
+        )
+        self.flatfield_state = status.get('state', self.flatfield_state)
+        self.flatfield_shape = status.get('shape', self.flatfield_shape)
+        self.flatfield_capture = status.get('capture', self.flatfield_capture)
+        self.flatfield_ticket = status.get('ticket')
+        self.flatfield_error = status.get('error')
+
+    def _update_flatfield_response(self, response):
+        status = response.get('flatfield')
+        if status is None:
+            status = next(
+                (process for process in response.get('preprocess', [])
+                 if process.get('name') == 'flatfield'),
+                None
+            )
+        if status is not None:
+            self._update_flatfield_status(status)
+
+    def _set_flatfield_spec(self, spec):
+        if self.flatfield_enabled:
+            self.set_flatfield_enabled(False)
+        response = self._call(cmd='set_flatfield', params=spec)
+        self._update_flatfield_response(response)
+        self.flatfield_mode = 'first_n' if spec['source'] == 'first_n' else 'number'
+
+    def _initialize_flatfield(self):
+        self.flatfield_initialized = True
+        self.flatfield_initialization_pending_disable = True
+        try:
+            self.set_flatfield_n(10)
+        except Exception:
+            self.flatfield_initialized = False
+            self.flatfield_initialization_pending_disable = False
+            raise
+
+    def set_flatfield_n(self, value):
+        """Set the first-N flat-field frame count."""
+        try:
+            frame_count = int(value)
+        except (TypeError, ValueError) as error:
+            raise LiveXError('Flat-field frame count must be an integer') from error
+        if frame_count < 1:
+            raise LiveXError('Flat-field frame count must be greater than zero')
+        self._set_flatfield_spec({'source': 'first_n', 'n': frame_count})
+        self.flatfield_n = frame_count
+
+    def set_flatfield_number(self, value):
+        """Resolve and load the flat-field file associated with an experiment number."""
+        experiment_number = int(value)
+        self._set_flatfield_spec({'source': 'number', 'num': experiment_number})
+        self.flatfield_number = experiment_number
+
+    def configure_storage(self, framesets_path, inferencing_path):
+        """Configure flat-field lookup and inference output paths from LiveX."""
+        self.framesets_path = framesets_path
+        self.inferencing_path = inferencing_path
+        response = self._call(
+            cmd='set_flatfield_folder', params={'folder': framesets_path}
+        )
+        self.flatfield_search_folder = response.get('search_folder')
+
+    def set_flatfield_enabled(self, enabled):
+        """Toggle flat-field correction without discarding the loaded flat."""
+        enabled = bool(enabled)
+        response = self._call(
+            cmd='set_preproc_param',
+            params={'name': 'flatfield', 'key': 'enabled', 'value': enabled}
+        )
+        self._update_flatfield_response(response)
+
+    def start_acquisition(self, acquisition_number, experiment_id):
+        """Start inference recording with acquisition-owned paths and flat-field settings."""
+        if not self.inferencing_path:
+            raise LiveXError('Inferencing output path is not configured')
+        self._call(
+            cmd='set_hdf5_output',
+            params={'out_dir': self.inferencing_path, 'prefix': experiment_id}
+        )
+        self._call(
+            cmd='start_acquisition',
+            params={
+                'number': int(acquisition_number),
+                'arm_hdf5': True
+            }
+        )
+
+    def stop_acquisition(self):
+        """Stop inference recording for the active acquisition."""
+        self._call(cmd='stop_acquisition')
 
     def list_models(self):
         response = self._call('list_models')
         self.models = response['models']
-        for model in self.models:
-            self.available_models.append(model['display_name'])
+        self.available_models = [
+            {'name': model['name'], 'display_name': model['display_name']}
+            for model in response['models']
+        ]
 
     def select_model(self, name):
         """Request an asynchronous model selection by model folder name."""
         if not isinstance(name, str) or not name.strip():
             raise LiveXError('A model name is required')
 
-        # Fetch the actual model name
-        selected_model = ""
-        for model in self.models:
-            if model['display_name'] == name:
-                selected_model = model['name']
-                logging.warning(f"selected_model: {model['name']}")
-        if not selected_model:
-            raise LiveXError(f"Model name {name} not found.")
+        selected_model = name.strip()
+        if not any(model['name'] == selected_model for model in self.models):
+            raise LiveXError(f'Model name {selected_model} not found.')
 
         response = self._call(cmd='select_model', params={'name': selected_model})
         self.selected_model = response.get('name', name.strip())
@@ -178,7 +324,9 @@ class EndpointManager():
 
         self.result_modes = None
         self._clear_results()
+        time.sleep(6)
         self.get_model_status()
+        self.get_stats()
 
     def _clear_results(self):
         """Create an empty results tree based on the current model's result_modes."""
@@ -310,6 +458,7 @@ class EndpointManager():
             return
 
         self.get_model_status()
+        self.get_stats()
         if self.model_status['app_state'] in ['ready', 'capturing_flat', 'inferencing']:
             self.get_results()
         if self.image_connected:

@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 
 from odin_control.adapters.base_controller import BaseController
@@ -106,14 +107,30 @@ class LiveXController(BaseController):
             self.trigger_manager.set_target(self.trigger_manager.acq_frame_target)
 
 
-            # Add cameras to self.filepaths for acquisition handling with default
+            # Add camera and inference output paths using each system's configured root.
+            storage_paths = {}
             for camera in self.camera.cameras:
-                # Filepaths are set in _generate_experiment_filenames but adding structure now is useful
-                self.filepaths[camera.name] = {'filename': None, 'filepath': None}
+                storage_root = self.options.get(f'{camera.name}_filepath', self.local_filepath)
+                framesets_path = os.path.join(storage_root, 'framesets')
+                inferencing_path = os.path.join(storage_root, 'inferencing')
+                self.filepaths[camera.name] = {
+                    'filename': None,
+                    'filepath': framesets_path
+                }
+                storage_paths[camera.name] = {
+                    'framesets': framesets_path,
+                    'inferencing': inferencing_path
+                }
 
                 # Set cameras to trigger source 2 (external)
                 # Internal triggering of 120Hz is much too fast for inferencing
                 camera.set_config(value=2, param='trigger_source')
+
+            logging.warning(f"configuring storage")
+            self.inferencing.configure_storage(
+                storage_paths,
+                lambda: icc_get(self.metadata, 'fields/campaign_name/value', param='value')
+            )
 
             # Reconstruct tree with relevant adapter references
             self._build_tree()
@@ -215,12 +232,11 @@ class LiveXController(BaseController):
         for camera in self.camera.cameras:
             name = camera.name
             self.filepaths[name]["filename"] = f"{experiment_id}_{name}"
-            # These are set earlier 
-            self.filepaths[name]["filepath"] = self.options.get(f"{name}_filepath", self.local_filepath)
         # Set values in metadata adapter
         icc_set(self.metadata, 'fields/experiment_id/value', experiment_id)
         icc_set(self.metadata, 'yaml/file', self.filepaths['metadata']['filename'])
         icc_set(self.metadata, 'yaml/path', self.filepaths['metadata']['filepath'])
+        return experiment_id
 
     def start_acquisition(self, acquisitions=[]):
         """Start an acquisition. Disable timers, configure all values, then start timers simultaneously.
@@ -235,7 +251,20 @@ class LiveXController(BaseController):
             self.current_acquisition = acquisitions
 
         # Get self.filepaths set to
-        self._generate_experiment_filenames()
+        experiment_id = self._generate_experiment_filenames()
+        acq_num = icc_get(self.metadata, 'fields/acquisition_num/value', param='value')
+        try:
+            self.inferencing.start_acquisition(
+                acquisition_number=acq_num,
+                experiment_id=experiment_id,
+                endpoint_names=[
+                    camera.name for camera in self.camera.cameras
+                    if camera.name in self.current_acquisition
+                ]
+            )
+        except Exception:
+            self.acquiring = False
+            raise
 
         # Stop all timers while processing
         self.trigger.set_all_timers(
@@ -283,15 +312,6 @@ class LiveXController(BaseController):
 
                 icc_set(self.metadata, f'fields/{camera.name}_orientation/value', self.liveview.options.get(f'{camera.name}_orientation', 'up'))
                 
-        acq_num = icc_get(self.metadata, 'fields/acquisition_num/value', param='value')
-
-        # try:
-        #     # Begin inference
-        #     for endpoint in self.inferencing.endpoints:
-        #         endpoint.start_experiment(experiment_number=acq_num)
-        # except Exception as e:
-        #     logging.error(f"inference error: {e}")
-
         # Move camera(s) to capture state
         for camera in self.camera.cameras:
             if camera.name in self.current_acquisition:
@@ -328,6 +348,11 @@ class LiveXController(BaseController):
             {'enable': False,
              'freerun': self.trigger_manager.freerun}
         )
+
+        try:
+            self.inferencing.stop_acquisition()
+        except Exception:
+            logging.exception("Error stopping inferencing acquisition")
 
         # Furnace
         if 'furnace' in self.current_acquisition:

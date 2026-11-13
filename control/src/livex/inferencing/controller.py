@@ -29,6 +29,7 @@ class InferencingController(BaseController):
         self.bg_poll_task_interval = bool(options.get('endpoint_poll_interval', 1))
 
         self.data_retention = int(options.get('data_retention', 60))
+        self.active_managers = []
 
         self._create_managers()
 
@@ -72,6 +73,41 @@ class InferencingController(BaseController):
             if name == manager.name:
                 return manager
         return None
+
+    def configure_storage(self, storage_paths, campaign_name_provider):
+        """Receive inference output paths from the acquisition adapter."""
+        logging.warning(f"storage_paths: {storage_paths}")
+        for manager in self.managers:
+            paths = storage_paths.get(manager.name)
+            if paths is None:
+                continue
+            manager.configure_storage(paths['framesets'], paths['inferencing'])
+
+    def start_acquisition(self, acquisition_number, experiment_id, endpoint_names):
+        """Start inference recording for endpoints included in the acquisition."""
+        endpoint_names = set(endpoint_names)
+        started = []
+        try:
+            for manager in self.managers:
+                if manager.name not in endpoint_names:
+                    continue
+                manager.start_acquisition(acquisition_number, experiment_id)
+                started.append(manager)
+        except Exception:
+            for manager in started:
+                try:
+                    manager.stop_acquisition()
+                except Exception:
+                    logging.exception('Failed to stop inference after a partial acquisition start')
+            raise
+        self.active_managers = started
+
+    def stop_acquisition(self):
+        """Stop inference recording for endpoints started by this controller."""
+        active_managers = self.active_managers
+        self.active_managers = []
+        for manager in active_managers:
+            manager.stop_acquisition()
 
     def set(self, path, data):
         """Set parameters in the parameter tree.

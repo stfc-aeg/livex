@@ -4,20 +4,18 @@ import type {
   InferencingLineResult,
 } from '../../EndpointTypes';
 
-import { Row, Col, Form, FloatingLabel } from 'react-bootstrap';
-import { type AdapterEndpoint, useAdapterEndpoint, WithEndpoint, TitleCard } from '@dssg/odin-react';
+import { Row, Col, Form, FloatingLabel, ProgressBar, Spinner } from 'react-bootstrap';
+import { type AdapterEndpoint, useAdapterEndpoint, EndpointSelect, EndpointInput, EndpointButton, TitleCard } from '@dssg/odin-react';
 import { useEffect, useRef, useState } from 'react';
 
 import MonitorGraph from '../furnace/MonitorGraph';
-import { floatingInputStyle, floatingLabelStyle, checkNull, checkNullNoDp } from '../../utils';
+import { floatingLabelStyle, checkNull, checkNullNoDp } from '../../utils';
 
 interface InferencingCardProps {
   endpoint: AdapterEndpoint<InferencingEndpointTypes>;
   endpoint_url: string;
   name: string;
 }
-
-const EndpointSelect = WithEndpoint(Form.Select);
 
 interface BitmapImageProps {
   endpoint_url: string;
@@ -87,12 +85,26 @@ type InferenceGraph = {
   series: Array<[string, InferencingLineResult['results'][string]]>;
 };
 
+type FlatfieldInputMode = 'number' | 'first_n';
+
 function InferencingCard(props: InferencingCardProps) {
     const {endpoint, endpoint_url, name} = props;
+    const [flatfieldInputMode, setFlatfieldInputMode] = useState<FlatfieldInputMode>('first_n');
 
     const datapath = endpoint?.data?.endpoint?.[name];
     const results = endpoint?.data?.endpoint?.[name]?.results;
     const endpointPath = `endpoint/${name}`;
+    const flatfieldStatus = datapath?.flatfield;
+    const flatfieldMode = flatfieldStatus?.mode ?? 'unknown';
+    const capture = flatfieldStatus?.capture;
+    const captureProgress = capture && capture.need > 0
+      ? Math.min(100, capture.have / capture.need * 100)
+      : 0;
+    const flatfieldLoading = Boolean(flatfieldStatus?.ticket) &&
+      flatfieldStatus?.state !== 'capturing' &&
+      flatfieldStatus?.state !== 'ready' &&
+      flatfieldStatus?.state !== 'none' &&
+      !flatfieldStatus?.error;
 
     const availableModels = endpoint?.data?.endpoint?.[name]?.model?.available || [];
     const graphs = Object.entries(results ?? {}).flatMap<InferenceGraph>(([graphId, value]) => {
@@ -111,9 +123,9 @@ function InferencingCard(props: InferencingCardProps) {
     return (
 
         <TitleCard title={`${name} Inference Details`}>
-          <Row className='mb-3'>
+          <Row >
             <Col>
-              <Row className="mb-3">
+              <Row>
                 Details
                 <Col xs={4}>
                   <FloatingLabel label="Select model">
@@ -123,16 +135,133 @@ function InferencingCard(props: InferencingCardProps) {
                       value={endpoint?.data?.endpoint?.[name]?.model?.status?.display_name || ''}
                     >
                       {availableModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
+                        <option key={model.display_name} value={model.name}>
+                          {model.display_name}
                         </option>
                       ))}
                     </EndpointSelect>
                   </FloatingLabel>
                 </Col>
               </Row>
-              <Row className='mt-3'>
-                  Preprocessing (e.g. flatfield)
+              <Row className="mt-3 g-3">
+                <Col xs={12} md={4}>
+                  <FloatingLabel label="Select flatfield mode">
+                    <Form.Select
+                      value={flatfieldInputMode}
+                      onChange={(event) =>
+                        setFlatfieldInputMode(event.target.value as FlatfieldInputMode)}
+                    >
+                      <option value="number">Experiment file</option>
+                      <option value="first_n">First N frames</option>
+                    </Form.Select>
+                  </FloatingLabel>
+                </Col>
+                {flatfieldInputMode === 'number' && (
+                  <Col xs={12} md={4}>
+                    <FloatingLabel label="Experiment number">
+                      <EndpointInput
+                        endpoint={endpoint}
+                        fullpath={`${endpointPath}/flatfield/number`}
+                        type="number"
+                        min={0}
+                      />
+                    </FloatingLabel>
+                  </Col>
+                )}
+                {flatfieldInputMode === 'first_n' && (
+                  <Col xs={12} md={4}>
+                    <FloatingLabel label="Frames to average">
+                      <EndpointInput
+                        endpoint={endpoint}
+                        fullpath={`${endpointPath}/flatfield/n`}
+                        type="number"
+                        min={1}
+                      />
+                    </FloatingLabel>
+                  </Col>
+                )}
+                <Col xs="auto">
+                  <EndpointButton
+                    endpoint={endpoint}
+                    fullpath={`${endpointPath}/flatfield/enabled`}
+                    value={!datapath?.flatfield?.enabled}
+                    variant={datapath?.flatfield?.enabled ? 'warning' : 'success'}
+                  >
+                    {datapath?.flatfield?.enabled ? 'Disable flatfield' : 'Enable flatfield'}
+                  </EndpointButton>
+                </Col>
+                {flatfieldStatus?.state === 'capturing' && capture && (
+                  <Col xs={12}>
+                    <div className="small mb-1">
+                      Capturing Flatfield: {capture.have}/{capture.need}
+                    </div>
+                    <ProgressBar
+                      now={captureProgress}
+                      aria-label="Flatfield capture progress"
+                    />
+                  </Col>
+                )}
+                {flatfieldLoading && (
+                  <Col xs={12} role="status" className="small">
+                    <Spinner animation="border" size="sm" className="me-2" />
+                    Loading Flatfield...
+                  </Col>
+                )}
+                {flatfieldStatus?.error && (
+                  <Col xs={12} role="alert" className="small text-danger">
+                    Flatfield error: {flatfieldStatus.error}
+                  </Col>
+                )}
+              </Row>
+              <Row className="mt-3 g-3">
+                <Col xs={6} md={3}>
+                  <FloatingLabel label="Flatfield mode">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={flatfieldMode === 'number'
+                        ? 'Experiment file'
+                        : flatfieldMode === 'first_n'
+                          ? 'First N frames'
+                          : flatfieldMode}
+                    />
+                  </FloatingLabel>
+                </Col>
+                <Col xs={6} md={3}>
+                  <FloatingLabel label="Flatfield enabled">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={datapath?.flatfield?.enabled == null
+                        ? 'Unknown'
+                        : String(datapath.flatfield.enabled)}
+                    />
+                  </FloatingLabel>
+                </Col>
+                <Col xs={6} md={3}>
+                  <FloatingLabel label="Flatfield loaded">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={datapath?.flatfield?.loaded == null
+                        ? 'Unknown'
+                        : String(datapath.flatfield.loaded)}
+                    />
+                  </FloatingLabel>
+                </Col>
+                <Col xs={6} md={3}>
+                  <FloatingLabel label="Flatfield source">
+                    <Form.Control
+                      plaintext
+                      readOnly
+                      style={floatingLabelStyle}
+                      value={datapath?.flatfield?.source ?? 'Unknown'}
+                    />
+                  </FloatingLabel>
+                </Col>
               </Row>
               <Row className="mt-3">
                 <Col xs={4}>
@@ -158,7 +287,7 @@ function InferencingCard(props: InferencingCardProps) {
               </Row>
             </Col>
           </Row>
-          <Row className="g-3">
+          <Row className="mt-3 g-3">
             {graphs.map(({ graphId, graph, series }) => (
               <Col key={graphId} xs={12} xl={6}>
                 {graph.type === 'bitmap' ? (

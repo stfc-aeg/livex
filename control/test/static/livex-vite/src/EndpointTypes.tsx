@@ -351,7 +351,7 @@ export interface InferencingEndpointEndpointTypes extends ParamNode {
     "endpoint": string;
     "endpoint_name": string;
     "model": {
-        "available": string[];
+        "available": { name: string; display_name: string }[];
         "select": string;
         "selected": string;
         "status": {
@@ -363,7 +363,21 @@ export interface InferencingEndpointEndpointTypes extends ParamNode {
             };
         };
     };
-    "results": {
+    flatfield: {
+        mode: string;
+        enabled: boolean;
+        loaded: boolean;
+        source: string | null;
+        search_folder: string | null;
+        state: 'none' | 'capturing' | 'ready' | string;
+        shape: number[] | null;
+        capture: { have: number; need: number; label: string } | null;
+        ticket: string | null;
+        error: string | null;
+        n: number;
+        number: number;
+    };
+    results: {
         "first_frame": number;
         "most_recent_frame": number;
         [result_id: string]: number | InferencingEndpointResultTypes;
